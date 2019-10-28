@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" hidden>
+	<head>
+		<meta http-equiv='X-UA-Compatible' content='IE=edge' />
+		<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />
+		<title>FHIR-Custom-Doc-Creation</title>
+		<link rel='stylesheet' type='text/css' href='./src/css/example-smart-app.css'>
+		<link rel='stylesheet' type='text/css' href='./lib/css/cerner-smart-embeddable-lib-1.0.0.min.css'>
+	</head>
+	<body>
+		<div id="demoBar"></div>
+	</body>
+	<!-- Required JS files to enable this page to embed within an MPage -->
+	<script src='https://cdnjs.cloudflare.com/ajax/libs/babel-polyfill/6.26.0/polyfill.min.js'></script>
+	<script src='./lib/js/cerner-smart-embeddable-lib-1.0.0.min.js'></script>
+
+	<!-- Application-level javascript-->
+	<script src='./src/js/example-smart-app.js'></script>
+
+	<!-- FHIR Client JS Library -->
+	<script src='./lib/js/fhir-client-v0.1.12.js'></script>
+
+	<!-- Prevent session bleed caused by single threaded embedded browser and sessionStorage API -->
+	<!-- https://github.com/cerner/fhir-client-cerner-additions -->
+	<script src='./lib/js/fhir-client-cerner-additions-1.0.0.js'></script>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+	<script>
+	function ready(smart) {
+		if (typeof smart.patient === "object") {
+			console.log(smart);
+			var patientApi = smart.patient.api;
+
+			// Meds
+			patientApi.fetchAll({
+				type: 'MedicationStatement',
+				query: {
+				status: "active"
+				}
+			}).then(function(response) {
+				var medTable = "<table class='dataTable'>";
+				response.forEach(function(med) {
+					medTable += "<tr><td>" + med.medicationCodeableConcept.text + "</td></tr>";
+				});
+				medTable += "</table>";
+				$("#medStatementDiv").html(medTable);
+			});
+
+			// Allergies
+			patientApi.fetchAll({
+				type: 'AllergyIntolerance',
+				query: {
+				status: "active"
+				}
+			}).then(function(response) {
+				var allergyTable = "<table class='dataTable'>";
+						response.forEach(function(allergy) {
+							allergyTable +=
+								"<tr>" +
+									"<td>" + allergy.substance.text + "</td>" +
+									"<td>" + allergy.status+"</td>" +
+								"</tr>";
+						});
+						allergyTable += "</table>";
+						$("#allergyDiv").html(allergyTable);
+			});
+
+			// Observations
+			patientApi.fetchAll({
+				type: 'Observation',
+				query: {
+					category: {
+						$or: ["laboratory","vital-signs"]
+					},
+					code: {
+						$or: ['http://loinc.org|29463-7', 'http://loinc.org|8302-2', 'http://loinc.org|8462-4',
+						'http://loinc.org|8480-6', 'http://loinc.org|2085-9',
+						'http://loinc.org|2089-1', 'http://loinc.org|55284-4']
+					}
+				}
+			}).then(function(response) {
+				function handleValueQuantity( qObj, dtTm, txt ) {
+					return "<tr>"+
+						"<td>" + txt + "</td>" +
+						"<td>" + qObj.value + " " + qObj.unit + "</td>" +
+						"<td>" + dtTm + "</td>" +
+					"</tr>";
+				}
+				var obsTable = "<table class='dataTable'>";
+				var obvCnt = 0;
+				response.forEach(function(obvObj,idx) {
+					obvCnt++;
+					if (typeof obvObj.valueQuantity === "object") {
+						obsTable += handleValueQuantity( obvObj.valueQuantity, obvObj.effectiveDateTime, obvObj.code.text );
+					}
+					else if (typeof obvObj.component === "object" && obvObj.component.length) {
+						obvObj.component.forEach(function(cObj,idx2) {
+							if (typeof cObj.valueQuantity === "object") {
+								obsTable += handleValueQuantity( cObj.valueQuantity, obvObj.effectiveDateTime, cObj.code.text );
+							}
+						});
+					}
+				});
+				obsTable += "</table>";
+				if (obvCnt > 0) {
+					$("#obvDiv").html(obsTable);
+				}
+				else {
+					$("#obvDiv").html("No Observations Found");
+				}
+			});
+
+			// Patient
+			patientApi.fetchAll({
+				type: 'Patient'
+			}).then(function(response) {
+				var patient = response[0];
+				$("#demo-name").html(patient.name[0].text);
+				$("#demo-gender").html(patient.gender);
+				$("#demo-dob").html(patient.birthDate);
+				if (patient.identifier && patient.identifier.length) {
+					patient.identifier.forEach(function(obj) {
+						if (obj.system === "urn:oid:1.1.1.1.1.1") {
+							$("#demo-mrn").html(obj.value);
+						}
+					});
+				}
+			});
+
+			// Encounter
+			patientApi.fetchAll({
+				type: 'Encounter'
+			}).then(function(response) {
+				var encntr = response[0];
+				console.log(encntr);
+				$("#demo-loc").html(encntr.location[0].location.display);
+				$("#demo-rfv").html(encntr.reason ? encntr.reason[0].text : "Brief Death");
+				if (encntr.identifier && encntr.identifier.length) {
+					encntr.identifier.forEach(function(obj) {
+						if (obj.system === "urn:oid:3.3.3.3.3.3") {
+							$("#demo-fin").html(obj.value);
+						}
+					});
+				}
+			});
+		}
+	}
+	function notReady(response) {
+		if (window.location.href.indexOf('error') < 0) {
+			document.body.innerText = "Launch first.";
+		}
+	}
+	FHIR.oauth2.ready(ready, notReady);
+	</script>
+</html>
